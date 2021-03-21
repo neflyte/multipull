@@ -25,6 +25,8 @@ const (
 )
 
 var (
+	AppVersion = "dev" // AppVersion is the application version string
+
 	concurrency int
 	cli         *client.Client
 	pool        *ants.PoolWithFunc
@@ -135,6 +137,7 @@ func pullImage(infoIntf interface{}) {
 func main() {
 	var err error
 
+	fmt.Printf("multipull v%s\n--\n", AppVersion)
 	flag.Parse()
 	logger := functionLogger("main")
 	ctx := context.Background()
@@ -150,18 +153,23 @@ func main() {
 	if err != nil {
 		logger.Fatalf("error initializing docker client: %s", err.Error())
 	}
+	defer func() {
+		err := cli.Close()
+		if err != nil {
+			logger.Printf("error closing client: %s", err.Error())
+		}
+	}()
 	wg = sync.WaitGroup{}
 	uiprogress.Start()
 	for _, arg := range flag.Args() {
-		inf := &pullInfo{
+		wg.Add(1)
+		err = pool.Invoke(&pullInfo{
 			Ctx:       ctx,
 			Imageref:  arg,
 			Waitgroup: &wg,
-		}
-		wg.Add(1)
-		err = pool.Invoke(inf)
+		})
 		if err != nil {
-			logger.Fatalf("error pulling image %s: %s", arg, err.Error())
+			logger.Printf("error pulling image %s: %s", arg, err.Error())
 		}
 	}
 	wg.Wait()
