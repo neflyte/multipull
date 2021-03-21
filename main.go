@@ -141,13 +141,11 @@ func main() {
 	if len(flag.Args()) <= 1 {
 		logger.Fatal("no arguments specified")
 	}
-	// logger.Printf("initialize pool; concurrency=%d", concurrency)
 	pool, err = ants.NewPoolWithFunc(concurrency, pullImage)
 	if err != nil {
 		logger.Fatalf("error initializing pool: %s", err.Error())
 	}
 	defer pool.Release()
-	// logger.Println("initialize client")
 	cli, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		logger.Fatalf("error initializing docker client: %s", err.Error())
@@ -155,7 +153,6 @@ func main() {
 	wg = sync.WaitGroup{}
 	uiprogress.Start()
 	for _, arg := range flag.Args() {
-		// logger.Printf("pulling image %s", arg)
 		inf := &pullInfo{
 			Ctx:       ctx,
 			Imageref:  arg,
@@ -167,8 +164,7 @@ func main() {
 			logger.Fatalf("error pulling image %s: %s", arg, err.Error())
 		}
 	}
-	// logger.Println("waiting for tasks to be done")
 	wg.Wait()
 	uiprogress.Stop()
-	logger.Println("done.")
+	fmt.Println("done.")
 }
