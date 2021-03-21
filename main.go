@@ -2,20 +2,26 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
+	"math"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
+	"github.com/neflyte/configmap"
+	"github.com/neflyte/uiprogress"
 	"github.com/panjf2000/ants/v2"
 )
 
 const (
-	logOptions = log.LstdFlags | log.Lmsgprefix | log.Lshortfile
+	logOptions        = log.LstdFlags | log.Lmsgprefix | log.Lshortfile
+	oneHundred        = 100
+	oneHundredPercent = 100.00
 )
 
 var (
@@ -32,7 +38,7 @@ type pullInfo struct {
 }
 
 func init() {
-	flag.IntVar(&concurrency, "parallel", 2, "the number of parallel image pulls to execute at one time")
+	flag.IntVar(&concurrency, "parallel", 2, "the number of parallel image pull requests to execute at one time")
 }
 
 func functionLogger(prefix string) *log.Logger {
@@ -40,6 +46,11 @@ func functionLogger(prefix string) *log.Logger {
 }
 
 func pullImage(infoIntf interface{}) {
+	var currentJN, totalJN json.Number
+	var current, total float64
+	var barPrefix string
+	var rawMap map[string]interface{}
+
 	logger := functionLogger("pullImage")
 	info, ok := infoIntf.(*pullInfo)
 	if !ok {
@@ -47,6 +58,18 @@ func pullImage(infoIntf interface{}) {
 		return
 	}
 	defer info.Waitgroup.Done()
+	bar := uiprogress.AddBar(oneHundred).
+		AppendCompleted().
+		PrependFunc(func(b *uiprogress.Bar) string {
+			return fmt.Sprintf("%s: %s", info.Imageref, barPrefix)
+		}).
+		NoProgressBar()
+	defer func() {
+		err := bar.Set(oneHundred)
+		if err != nil {
+			logger.Printf("error setting bar: %s", err.Error())
+		}
+	}()
 	reader, err := cli.ImagePull(info.Ctx, info.Imageref, types.ImagePullOptions{})
 	if err != nil {
 		logger.Printf("error pulling image: %s", err.Error())
@@ -58,10 +81,54 @@ func pullImage(infoIntf interface{}) {
 			logger.Printf("error closing reader: %s", err.Error())
 		}
 	}()
-	_, err = io.Copy(os.Stdout, reader)
-	if err != nil {
-		logger.Printf("error copying response to stdout: %s", err.Error())
-		return
+	dec := json.NewDecoder(reader)
+	dec.UseNumber()
+	for dec.More() {
+		rawMap = make(map[string]interface{})
+		err = dec.Decode(&rawMap)
+		if err != nil {
+			logger.Printf("error decoding: %s", err.Error())
+			return
+		}
+		cmap := configmap.Configmap(rawMap)
+		barPrefix = strings.TrimPrefix(cmap.GetString("status"), "Status: ")
+		progressDetailPtr := cmap.GetConfigMapOrNil("progressDetail")
+		if progressDetailPtr != nil {
+			progressDetail := *progressDetailPtr
+			currentIntf := progressDetail.GetOrNil("current")
+			if currentIntf != nil {
+				currentJN, ok = currentIntf.(json.Number)
+				if !ok {
+					logger.Printf("error casting current to json.Number; value: %#v", currentIntf)
+					return
+				}
+				current, err = currentJN.Float64()
+				if err != nil {
+					logger.Printf("error getting float64 value from currentJN: %s", err.Error())
+					return
+				}
+			}
+			totalIntf := progressDetail.GetOrNil("total")
+			if totalIntf != nil {
+				totalJN, ok = totalIntf.(json.Number)
+				if !ok {
+					logger.Printf("error casting total to json.Number; value: %#v", totalIntf)
+					return
+				}
+				total, err = totalJN.Float64()
+				if err != nil {
+					logger.Printf("error getting float64 value from totalJN: %s", err.Error())
+					return
+				}
+			}
+		}
+		if total > 0 {
+			percent := int(math.Round((current / total) * oneHundredPercent))
+			err = bar.Set(percent)
+			if err != nil {
+				logger.Printf("error setting bar value: %s", err.Error())
+			}
+		}
 	}
 }
 
@@ -71,25 +138,24 @@ func main() {
 	flag.Parse()
 	logger := functionLogger("main")
 	ctx := context.Background()
-	if len(os.Args) <= 1 {
+	if len(flag.Args()) <= 1 {
 		logger.Fatal("no arguments specified")
 	}
-	args := os.Args[1:]
-	// logger.Printf("os.Args[1:]=%#v", os.Args[1:])
-	logger.Printf("initialize pool; concurrency=%d", concurrency)
+	// logger.Printf("initialize pool; concurrency=%d", concurrency)
 	pool, err = ants.NewPoolWithFunc(concurrency, pullImage)
 	if err != nil {
 		logger.Fatalf("error initializing pool: %s", err.Error())
 	}
 	defer pool.Release()
-	logger.Println("initialize client")
+	// logger.Println("initialize client")
 	cli, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		logger.Fatalf("error initializing docker client: %s", err.Error())
 	}
 	wg = sync.WaitGroup{}
-	for _, arg := range args {
-		logger.Printf("pulling image %s", arg)
+	uiprogress.Start()
+	for _, arg := range flag.Args() {
+		// logger.Printf("pulling image %s", arg)
 		inf := &pullInfo{
 			Ctx:       ctx,
 			Imageref:  arg,
@@ -101,7 +167,8 @@ func main() {
 			logger.Fatalf("error pulling image %s: %s", arg, err.Error())
 		}
 	}
-	logger.Println("waiting for tasks to be done")
+	// logger.Println("waiting for tasks to be done")
 	wg.Wait()
+	uiprogress.Stop()
 	logger.Println("done.")
 }
