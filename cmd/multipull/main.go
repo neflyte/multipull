@@ -5,9 +5,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
 	"math"
-	"os"
+	"multipull/internal"
 	"strings"
 	"sync"
 
@@ -19,7 +18,6 @@ import (
 )
 
 const (
-	logOptions        = log.LstdFlags | log.Lmsgprefix | log.Lshortfile
 	oneHundred        = 100
 	oneHundredPercent = 100.00
 )
@@ -27,10 +25,13 @@ const (
 var (
 	AppVersion = "dev" // AppVersion is the application version string
 
-	concurrency int
-	cli         *client.Client
-	pool        *ants.PoolWithFunc
-	wg          sync.WaitGroup
+	cliContextName    string
+	cliCurrentContext bool
+	concurrency       int
+
+	cli  *client.Client
+	pool *ants.PoolWithFunc
+	wg   sync.WaitGroup
 )
 
 type pullInfo struct {
@@ -39,21 +40,13 @@ type pullInfo struct {
 	Waitgroup *sync.WaitGroup
 }
 
-func init() {
-	flag.IntVar(&concurrency, "parallel", 2, "the number of parallel image pull requests to execute at one time")
-}
-
-func functionLogger(prefix string) *log.Logger {
-	return log.New(os.Stdout, fmt.Sprintf("%s] ", prefix), logOptions)
-}
-
 func pullImage(infoIntf interface{}) {
 	var currentJN, totalJN json.Number
 	var current, total float64
 	var barPrefix string
 	var rawMap map[string]interface{}
 
-	logger := functionLogger("pullImage")
+	logger := internal.FunctionLogger("pullImage")
 	info, ok := infoIntf.(*pullInfo)
 	if !ok {
 		logger.Printf("invalid function input")
@@ -136,12 +129,17 @@ func pullImage(infoIntf interface{}) {
 
 func main() {
 	var err error
+	var cliContext *internal.CliContext
+
+	flag.IntVar(&concurrency, "parallel", 2, "the number of parallel image pull requests to execute at one time")
+	flag.StringVar(&cliContextName, "context", "", "the docker cli context to use (optional)")
+	flag.BoolVar(&cliCurrentContext, "current-context", false, "use the current docker cli context; supercedes -context (optional)")
 
 	fmt.Printf("multipull v%s\n--\n", AppVersion)
 	flag.Parse()
-	logger := functionLogger("main")
+	logger := internal.FunctionLogger("main")
 	ctx := context.Background()
-	if len(flag.Args()) <= 1 {
+	if len(flag.Args()) < 1 {
 		logger.Fatal("no arguments specified")
 	}
 	pool, err = ants.NewPoolWithFunc(concurrency, pullImage)
@@ -149,12 +147,45 @@ func main() {
 		logger.Fatalf("error initializing pool: %s", err.Error())
 	}
 	defer pool.Release()
-	cli, err = client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	// Was a docker cli context supplied?
+	if cliContextName != "" || cliCurrentContext {
+		cliContext, err = internal.ResolveCliContext(cliContextName, cliCurrentContext)
+		if err != nil {
+			logger.Fatalf("error resolving cli context: %s", err.Error())
+		}
+		contextHost := (*cliContext.Endpoint).GetStringOrNil("Host")
+		if contextHost == nil {
+			logger.Fatalf("host not defined for context %s", cliContext.Name)
+			return
+		}
+		cliOpts := []client.Opt{
+			client.WithAPIVersionNegotiation(),
+			client.WithHost(*contextHost),
+		}
+		if (*cliContext.TLSData).Has(internal.TlsCaFile) &&
+			(*cliContext.TLSData).Has(internal.TlsCertFile) &&
+			(*cliContext.TLSData).Has(internal.TlsKeyFile) {
+			cliOpts = append(
+				cliOpts,
+				client.WithTLSClientConfig(
+					(*cliContext.TLSData).GetString(internal.TlsCaFile),
+					(*cliContext.TLSData).GetString(internal.TlsCertFile),
+					(*cliContext.TLSData).GetString(internal.TlsKeyFile),
+				),
+			)
+		}
+		cli, err = client.NewClientWithOpts(cliOpts...)
+	} else {
+		cli, err = client.NewClientWithOpts(
+			client.FromEnv,
+			client.WithAPIVersionNegotiation(),
+		)
+	}
 	if err != nil {
 		logger.Fatalf("error initializing docker client: %s", err.Error())
 	}
 	defer func() {
-		err := cli.Close()
+		err = cli.Close()
 		if err != nil {
 			logger.Printf("error closing client: %s", err.Error())
 		}
