@@ -13,7 +13,7 @@ require (
 	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/moby/term v0.0.0-20201216013528-df9cb8a40635 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
-	github.com/neflyte/configmap v0.0.0-20200621003754-35823ab7be8c
+	github.com/neflyte/configmap v0.2.0
 	github.com/neflyte/uiprogress v0.0.2
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.0.1 // indirect

@@ -41,10 +41,9 @@ type pullInfo struct {
 }
 
 func pullImage(infoIntf interface{}) {
-	var currentJN, totalJN json.Number
 	var current, total float64
 	var barPrefix string
-	var rawMap map[string]interface{}
+	var cmap configmap.Configmap
 
 	logger := internal.FunctionLogger("pullImage")
 	info, ok := infoIntf.(*pullInfo)
@@ -67,7 +66,7 @@ func pullImage(infoIntf interface{}) {
 	}()
 	reader, err := cli.ImagePull(info.Ctx, info.Imageref, types.ImagePullOptions{})
 	if err != nil {
-		logger.Printf("error pulling image: %s", err.Error())
+		barPrefix = fmt.Sprintf("error pulling image: %s", err.Error())
 		return
 	}
 	defer func() {
@@ -79,42 +78,26 @@ func pullImage(infoIntf interface{}) {
 	dec := json.NewDecoder(reader)
 	dec.UseNumber()
 	for dec.More() {
-		rawMap = make(map[string]interface{})
-		err = dec.Decode(&rawMap)
+		cmap = make(configmap.Configmap)
+		err = dec.Decode(&cmap)
 		if err != nil {
 			logger.Printf("error decoding: %s", err.Error())
-			return
+			continue
 		}
-		cmap := configmap.Configmap(rawMap)
 		barPrefix = strings.TrimPrefix(cmap.GetString("status"), "Status: ")
 		progressDetailPtr := cmap.GetConfigMapOrNil("progressDetail")
 		if progressDetailPtr != nil {
-			progressDetail := *progressDetailPtr
-			currentIntf := progressDetail.GetOrNil("current")
-			if currentIntf != nil {
-				currentJN, ok = currentIntf.(json.Number)
-				if !ok {
-					logger.Printf("error casting current to json.Number; value: %#v", currentIntf)
-					return
-				}
-				current, err = currentJN.Float64()
-				if err != nil {
-					logger.Printf("error getting float64 value from currentJN: %s", err.Error())
-					return
-				}
+			currentIntf := (*progressDetailPtr).GetJSONNumberAsFloat64OrNil("current")
+			if currentIntf == nil {
+				current = 0
+			} else {
+				current = *currentIntf
 			}
-			totalIntf := progressDetail.GetOrNil("total")
-			if totalIntf != nil {
-				totalJN, ok = totalIntf.(json.Number)
-				if !ok {
-					logger.Printf("error casting total to json.Number; value: %#v", totalIntf)
-					return
-				}
-				total, err = totalJN.Float64()
-				if err != nil {
-					logger.Printf("error getting float64 value from totalJN: %s", err.Error())
-					return
-				}
+			totalIntf := (*progressDetailPtr).GetJSONNumberAsFloat64OrNil("total")
+			if totalIntf == nil {
+				total = 0
+			} else {
+				total = *totalIntf
 			}
 		}
 		if total > 0 {
