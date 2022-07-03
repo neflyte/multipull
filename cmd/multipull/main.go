@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"multipull/internal"
+	"os"
 	"strings"
 	"sync"
 
@@ -40,15 +41,30 @@ type pullInfo struct {
 	Waitgroup *sync.WaitGroup
 }
 
-func pullImage(infoIntf interface{}) {
-	var current, total float64
-	var barPrefix string
-	var cmap configmap.Configmap
+func init() {
+	flag.IntVar(&concurrency, "parallel", 2, "the number of parallel image pull requests to execute at one time")
+	flag.StringVar(&cliContextName, "context", "", "the docker cli context to use (optional)")
+	flag.BoolVar(&cliCurrentContext, "current-context", false, "use the current docker cli context; supercedes -context (optional)")
+}
 
+func pullImage(infoIntf interface{}) {
+	var (
+		current, total float64
+		barPrefix      string
+		cmap           configmap.Configmap
+	)
 	logger := internal.FunctionLogger("pullImage")
+	if infoIntf == nil {
+		logger.Println("info is unexpectedly nil")
+		return
+	}
 	info, ok := infoIntf.(*pullInfo)
 	if !ok {
-		logger.Printf("invalid function input")
+		logger.Println("invalid function input")
+		return
+	}
+	if info.Waitgroup == nil {
+		logger.Println("waitgroup is unexpectedly nil")
 		return
 	}
 	defer info.Waitgroup.Done()
@@ -110,20 +126,34 @@ func pullImage(infoIntf interface{}) {
 	}
 }
 
+func usage() {
+	fmt.Println("usage:\n\tmultipull [flags] image [image...]\n\nflags:")
+	flag.PrintDefaults()
+}
+
 func main() {
-	var err error
-	var cliContext *internal.CliContext
-
-	flag.IntVar(&concurrency, "parallel", 2, "the number of parallel image pull requests to execute at one time")
-	flag.StringVar(&cliContextName, "context", "", "the docker cli context to use (optional)")
-	flag.BoolVar(&cliCurrentContext, "current-context", false, "use the current docker cli context; supercedes -context (optional)")
-
+	var (
+		err        error
+		cliContext *internal.CliContext
+		args       []string
+	)
 	fmt.Printf("multipull v%s\n--\n", AppVersion)
 	flag.Parse()
 	logger := internal.FunctionLogger("main")
-	ctx := context.Background()
 	if len(flag.Args()) < 1 {
-		logger.Fatal("no arguments specified")
+		usage()
+		os.Exit(1)
+	}
+	args = make([]string, 0)
+	for _, arg := range flag.Args() {
+		trimmed := strings.TrimSpace(arg)
+		if trimmed != "" {
+			args = append(args, arg)
+		}
+	}
+	if len(args) < 1 {
+		usage()
+		os.Exit(1)
 	}
 	pool, err = ants.NewPoolWithFunc(concurrency, pullImage)
 	if err != nil {
@@ -173,9 +203,10 @@ func main() {
 			logger.Printf("error closing client: %s", err.Error())
 		}
 	}()
+	ctx := context.Background()
 	wg = sync.WaitGroup{}
 	uiprogress.Start()
-	for _, arg := range flag.Args() {
+	for _, arg := range args {
 		wg.Add(1)
 		err = pool.Invoke(&pullInfo{
 			Ctx:       ctx,

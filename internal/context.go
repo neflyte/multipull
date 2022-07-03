@@ -4,10 +4,11 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"github.com/neflyte/configmap"
 	"io/ioutil"
 	"os"
 	"path"
+
+	"github.com/neflyte/configmap"
 )
 
 const (

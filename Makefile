@@ -3,13 +3,22 @@ APPVERSION=$(shell cat VERSION)
 BINPREFIX=multipull-$(APPVERSION)_
 GO_LDFLAGS=-ldflags "-s -w -X main.AppVersion=$(APPVERSION)"
 
-multipull:
+multipull: tidy lint
 	CGO_ENABLED=0 go build $(GO_LDFLAGS) ./cmd/multipull
+.PHONY: multipull
 
 clean:
 	@if [ -d dist ]; then rm -Rf dist; fi
 	@if [ -f multipull ]; then rm -f multipull; fi
 .PHONY: clean
+
+tidy:
+	go mod tidy
+.PHONY: tidy
+
+lint:
+	go vet ./...
+.PHONY: lint
 
 release-binaries: release-binary-windows
 	@for os in $(OSES); do \
