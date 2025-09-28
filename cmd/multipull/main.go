@@ -6,12 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"math"
-	"multipull/internal"
 	"os"
 	"strings"
 	"sync"
 
-	"github.com/docker/docker/api/types"
+	"multipull/internal"
+
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
 	"github.com/neflyte/configmap"
 	"github.com/neflyte/uiprogress"
@@ -80,7 +81,8 @@ func pullImage(infoIntf interface{}) {
 			logger.Printf("error setting bar: %s", err.Error())
 		}
 	}()
-	reader, err := cli.ImagePull(info.Ctx, info.Imageref, types.ImagePullOptions{})
+	// FIXME: add retries with a backoff timer
+	reader, err := cli.ImagePull(info.Ctx, info.Imageref, image.PullOptions{})
 	if err != nil {
 		barPrefix = fmt.Sprintf("error pulling image: %s", err.Error())
 		return

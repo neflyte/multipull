@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 
@@ -52,7 +51,7 @@ func ResolveCliContext(contextName string, currentContext bool) (*CliContext, er
 		var rawDataBytes []byte
 		// Get the name of the current context
 		configJsonFile := path.Join(dockerDir, "config.json")
-		rawDataBytes, err = ioutil.ReadFile(configJsonFile)
+		rawDataBytes, err = os.ReadFile(configJsonFile)
 		if err != nil {
 			logger.Printf("error reading context config file %s: %s", configJsonFile, err.Error())
 			return nil, err
@@ -73,7 +72,7 @@ func ResolveCliContext(contextName string, currentContext bool) (*CliContext, er
 		contextNameHashBytes := sha256.Sum256([]byte(contextName))
 		contextNameHash := fmt.Sprintf("%x", contextNameHashBytes)
 		contextMetaFile := path.Join(contextMetaDir, contextNameHash, "meta.json")
-		rawMetaBytes, err = ioutil.ReadFile(contextMetaFile)
+		rawMetaBytes, err = os.ReadFile(contextMetaFile)
 		if err != nil {
 			logger.Printf("error reading context metadata file %s: %s", contextMetaFile, err.Error())
 			return nil, err
