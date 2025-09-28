@@ -157,7 +157,7 @@ func main() {
 		usage()
 		os.Exit(1)
 	}
-	pool, err = ants.NewPoolWithFunc(concurrency, pullImage)
+	pool, err = ants.NewPoolWithFunc(concurrency, pullImage, ants.WithLogger(internal.FunctionLogger("ants")))
 	if err != nil {
 		logger.Fatalf("error initializing pool: %s", err.Error())
 	}
