@@ -205,11 +205,10 @@ func main() {
 			logger.Printf("error closing client: %s", err.Error())
 		}
 	}()
-	ctx := context.Background()
+	ctx, cancelFunc := context.WithCancel(context.Background())
 	wg = sync.WaitGroup{}
 	uiprogress.Start()
 	for _, arg := range args {
-		wg.Add(1)
 		err = pool.Invoke(&pullInfo{
 			Ctx:       ctx,
 			Imageref:  arg,
@@ -217,9 +216,12 @@ func main() {
 		})
 		if err != nil {
 			logger.Printf("error pulling image %s: %s", arg, err.Error())
+			continue
 		}
+		wg.Add(1)
 	}
 	wg.Wait()
+	cancelFunc()
 	uiprogress.Stop()
 	fmt.Println("done.")
 }

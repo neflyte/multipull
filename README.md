@@ -1,13 +1,12 @@
 # multipull
 A utility that pulls multiple Docker images in parallel
 
-
 ## Building
 
 ### Requirements
 
-- Golang v1.15+
-- Docker CE / Docker Desktop
+- Golang v1.23+
+- Docker Engine / Docker Desktop
 
 ### Build commands
 
